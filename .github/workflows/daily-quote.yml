@@ -1,0 +1,127 @@
+name: Daily Quote Generator
+
+on:
+  # Run daily at 9:00 AM UTC
+  schedule:
+    - cron: '*/5 * * * *'
+  
+  # Allow manual trigger for testing
+  workflow_dispatch:
+  
+  # Run on push to main for testing
+  push:
+    branches: [ main ]
+    paths: 
+      - 'main.py'
+      - '.github/workflows/daily-quote.yml'
+
+jobs:
+  generate-daily-quote:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Generate daily quote
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: |
+        python -c "
+        import json
+        import requests
+        import os
+        from datetime import datetime
+        from openai import OpenAI
+        
+        # Set up OpenAI client
+        client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        # Generate quote using OpenAI directly
+        try:
+            response = client.chat.completions.create(
+                model='gpt-3.5-turbo',
+                messages=[
+                    {'role': 'system', 'content': 'You are a wise quote generator. Always respond with valid JSON only.'},
+                    {'role': 'user', 'content': '''Generate a unique inspirational quote for today.
+                    
+                    Please respond in this exact JSON format:
+                    {
+                        \"quote\": \"The actual quote text here\",
+                        \"author\": \"Author Name (can be Anonymous if original)\",
+                        \"category\": \"daily-inspiration\"
+                    }
+                    
+                    Make it particularly meaningful and uplifting.'''}
+                ],
+                max_tokens=150,
+                temperature=0.9
+            )
+            
+            quote_data = json.loads(response.choices[0].message.content.strip())
+            quote_data['generated_at'] = datetime.now().isoformat()
+            quote_data['date'] = datetime.now().strftime('%Y-%m-%d')
+            
+            # Load existing quotes or create new list
+            try:
+                with open('quotes.json', 'r') as f:
+                    quotes = json.load(f)
+            except FileNotFoundError:
+                quotes = []
+            
+            # Add new quote
+            quotes.append(quote_data)
+            
+            # Keep only last 30 days of quotes
+            quotes = quotes[-30:]
+            
+            # Save updated quotes
+            with open('quotes.json', 'w') as f:
+                json.dump(quotes, f, indent=2)
+                
+            print(f'Generated quote: {quote_data[\"quote\"]} - {quote_data[\"author\"]}')
+            
+        except Exception as e:
+            print(f'Error: {e}')
+            exit(1)
+        "
+    
+    - name: Commit and push if changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Check if there are changes
+        git add quotes.json
+        
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Add daily quote for $(date +'%Y-%m-%d')"
+          git push
+          echo "Quote committed and pushed!"
+        fi
+    
+    - name: Create summary
+      run: |
+        echo "## Daily Quote Generated 📝" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ -f quotes.json ]; then
+          echo "Latest quote added to quotes.json" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          tail -1 quotes.json | jq . >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        fi
