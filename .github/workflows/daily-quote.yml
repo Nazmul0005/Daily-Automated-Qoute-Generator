@@ -122,6 +122,7 @@ jobs:
           echo "Latest quote added to quotes.json" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```json' >> $GITHUB_STEP_SUMMARY
-          tail -1 quotes.json | jq . >> $GITHUB_STEP_SUMMARY
+          # Get the last object from the JSON array instead of the last line
+          jq '.[-1]' quotes.json >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
         fi
